@@ -16,3 +16,4 @@ pytesseract==0.3.10
 langchain-experimental
 langgraph
 pypdf
+python-docx
