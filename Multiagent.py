@@ -5,7 +5,6 @@ import pandas as pd
 import pytesseract
 from PIL import Image
 from dotenv import load_dotenv
-import pypandoc
 from docx import Document as DocxDocument
 from langchain.schema import Document
 from langchain_groq import ChatGroq
@@ -17,7 +16,6 @@ from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.agents import Tool, initialize_agent, AgentType
-from langchain.agents.agent import AgentExecutor
 from langchain_experimental.agents.agent_toolkits.pandas.base import create_pandas_dataframe_agent
 
 # Load API key
@@ -26,7 +24,7 @@ groq_api_key = os.getenv("GROQ_API_KEY")
 
 st.set_page_config(page_title="All-in-One Agentic Assistant", page_icon="🤖")
 st.title("🧠 Multi-Document Agentic Assistant")
-st.write("Upload PDF, CSV, Excel, Word (.doc/.docx), PPT, or image files and ask your questions.")
+st.write("Upload PDF, CSV, Excel, Word (.docx only), PPT, or image files and ask your questions.")
 
 if not groq_api_key:
     st.error("🚫 GROQ_API_KEY not found in `.env`. Please add it before proceeding.")
@@ -41,27 +39,19 @@ llm = ChatGroq(
 
 # File uploader
 uploaded_files = st.file_uploader(
-    "Upload your files (PDF, Excel, CSV, Word, PPT, Images)",
+    "Upload your files (PDF, Excel, CSV, Word (.docx), PPT, Images)",
     accept_multiple_files=True
 )
 
 tools = []
 
-# Word loader that handles both .doc and .docx
-def load_doc_or_docx_as_text(path):
+# Load .docx file as text
+def load_docx_as_text(path):
     try:
-        if path.endswith(".doc"):
-            # Convert .doc to .docx using Pandoc
-            converted_path = path + "x"
-            pypandoc.convert_file(path, 'docx', outputfile=converted_path)
-            path = converted_path
-
-        # Load the .docx file content
         doc = DocxDocument(path)
         return "\n".join([para.text for para in doc.paragraphs])
-
     except Exception as e:
-        raise RuntimeError(f"Failed to load Word file: {e}")
+        raise RuntimeError(f"Failed to load .docx file: {e}")
 
 # Process uploaded files
 for file in uploaded_files:
@@ -78,11 +68,15 @@ for file in uploaded_files:
             loader = PyPDFLoader(tmp_path)
             documents = loader.load()
 
-        # === Word (.doc or .docx) ===
-        elif filename.endswith((".doc", ".docx")):
+        # === Word (.docx only) ===
+        elif filename.endswith(".docx"):
             st.info(f"📝 Processing Word Document: {filename}")
-            text = load_doc_or_docx_as_text(tmp_path)
+            text = load_docx_as_text(tmp_path)
             documents = [Document(page_content=text)]
+
+        elif filename.endswith(".doc"):
+            st.warning("❌ .doc files are not supported. Please upload .docx files instead.")
+            continue
 
         # === PowerPoint (.pptx) ===
         elif filename.endswith(".pptx"):
@@ -141,14 +135,14 @@ for file in uploaded_files:
     except Exception as e:
         st.error(f"❌ Error processing {filename}: {e}")
 
-# === Create Multi-tool Agent with parsing error handling ===
+# === Create Multi-tool Agent with error handling ===
 if tools:
     agent = initialize_agent(
         tools=tools,
         llm=llm,
         agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
         verbose=False,
-        handle_parsing_errors=True  # ✅ This line fixes output parsing failures
+        handle_parsing_errors=True  # prevent output parsing crash
     )
 
     st.markdown("### 💬 Ask a question about any of your uploaded files")
